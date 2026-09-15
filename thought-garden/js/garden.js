@@ -59,8 +59,7 @@ export class Garden {
     });
 
     this.resize();
-    this.#loop = this.#loop.bind(this);
-    this.frameId = requestAnimationFrame(this.#loop);
+    this.frameId = requestAnimationFrame(now => this.#loop(now));
   }
 
   #eventPoint(event) {
@@ -81,7 +80,7 @@ export class Garden {
 
   #loop(now) {
     this.#drawScene(now);
-    this.frameId = requestAnimationFrame(this.#loop);
+    this.frameId = requestAnimationFrame(next => this.#loop(next));
   }
 
   #drawScene(now) {
