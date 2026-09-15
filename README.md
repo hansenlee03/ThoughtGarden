@@ -88,8 +88,6 @@ ThoughtGarden/
 │   ├── placement.test.js
 │   ├── plant.test.js
 │   └── storage.test.js
-├── docs/
-│   └── superpowers/
 ├── package.json
 └── LICENSE
 ```
