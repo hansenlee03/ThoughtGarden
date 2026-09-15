@@ -16,7 +16,6 @@ const els = {
   accessLayer: document.querySelector('#plant-accessibility-layer'),
   tooltip: document.querySelector('#tooltip'),
   notice: document.querySelector('#notice-region'),
-  p5Error: document.querySelector('#p5-error'),
   dialog: document.querySelector('#thought-dialog'),
   dialogDate: document.querySelector('#dialog-date'),
   dialogText: document.querySelector('#dialog-text'),
@@ -53,7 +52,7 @@ function formatDate(iso) {
 }
 
 function createId() {
-  if (crypto?.randomUUID) return crypto.randomUUID();
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') return globalThis.crypto.randomUUID();
   return `thought-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -245,13 +244,6 @@ function bindEvents() {
 function bootstrap() {
   updateCount();
   bindEvents();
-
-  if (typeof window.p5 !== 'function') {
-    els.p5Error.hidden = false;
-    els.input.disabled = true;
-    els.plantButton.disabled = true;
-    return;
-  }
 
   const loaded = loadEntries(window.localStorage);
   entries = loaded.entries;
