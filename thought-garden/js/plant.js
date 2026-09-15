@@ -141,12 +141,12 @@ export class Plant {
     return px >= bounds.left && px <= bounds.left + bounds.width && py >= bounds.top && py <= bounds.top + bounds.height;
   }
 
-  draw(p, groundY, now, reducedMotion = false) {
+  draw(ctx, { width, height, groundY, now, reducedMotion = false }) {
     this.update(now, reducedMotion);
 
     const palette = PALETTES[this.style.paletteIndex % PALETTES.length];
-    const x = this.entry.x * p.width;
-    const totalHeight = this.style.height * p.height;
+    const x = this.entry.x * width;
+    const totalHeight = this.style.height * height;
     const stemGrowth = smoothstep(this.progress / 0.58);
     const branchGrowth = smoothstep((this.progress - 0.28) / 0.48);
     const bloomGrowth = smoothstep((this.progress - 0.7) / 0.3);
@@ -155,12 +155,21 @@ export class Plant {
     const tipX = x + wind * Math.min(12, totalHeight * 0.045) * stemGrowth;
     const tipY = groundY - grownHeight;
 
-    p.push();
-    p.noFill();
-    p.stroke(palette.stem);
-    p.strokeWeight(Math.max(2.2, p.width * 0.0024));
-    p.strokeCap(p.ROUND);
-    p.bezier(x, groundY + 3, x - wind * 2, groundY - grownHeight * 0.35, tipX - wind * 2, groundY - grownHeight * 0.72, tipX, tipY);
+    ctx.save();
+    ctx.strokeStyle = palette.stem;
+    ctx.lineWidth = Math.max(2.2, width * 0.0024);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, groundY + 3);
+    ctx.bezierCurveTo(
+      x - wind * 2,
+      groundY - grownHeight * 0.35,
+      tipX - wind * 2,
+      groundY - grownHeight * 0.72,
+      tipX,
+      tipY
+    );
+    ctx.stroke();
 
     if (branchGrowth > 0) {
       for (const branch of this.branches) {
@@ -172,64 +181,84 @@ export class Plant {
         const endX = centerX + branch.side * length * 0.58;
         const endY = y - length * branch.angle;
 
-        p.stroke(palette.stem);
-        p.strokeWeight(Math.max(1.4, p.width * 0.0015));
-        p.line(centerX, y, endX, endY);
-        this.#drawLeaf(p, endX, endY, branch.side, length * 0.42 * branch.leafScale, palette, localGrowth);
+        ctx.strokeStyle = palette.stem;
+        ctx.lineWidth = Math.max(1.4, width * 0.0015);
+        ctx.beginPath();
+        ctx.moveTo(centerX, y);
+        ctx.lineTo(endX, endY);
+        ctx.stroke();
+        this.#drawLeaf(ctx, endX, endY, branch.side, length * 0.42 * branch.leafScale, palette, localGrowth);
       }
     }
 
     if (bloomGrowth > 0.01) {
-      this.#drawBloom(p, tipX, tipY, totalHeight, bloomGrowth, palette, wind);
+      this.#drawBloom(ctx, tipX, tipY, totalHeight, bloomGrowth, palette, wind);
     } else if (this.progress < 0.25) {
       const seedGlow = 7 + 8 * this.progress;
-      p.noStroke();
-      p.fill(236, 218, 160, 55 + 120 * (1 - this.progress));
-      p.circle(x, groundY - 2, seedGlow * 2.4);
-      p.fill(223, 195, 126, 230);
-      p.ellipse(x, groundY - 3, seedGlow, seedGlow * 0.64);
+      ctx.fillStyle = `rgba(236, 218, 160, ${clamp((55 + 120 * (1 - this.progress)) / 255, 0, 1)})`;
+      ctx.beginPath();
+      ctx.arc(x, groundY - 2, seedGlow * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#dfc37e';
+      ctx.beginPath();
+      ctx.ellipse(x, groundY - 3, seedGlow / 2, seedGlow * 0.32, 0, 0, Math.PI * 2);
+      ctx.fill();
     }
 
-    p.pop();
+    ctx.restore();
   }
 
-  #drawLeaf(p, x, y, side, size, palette, growth) {
+  #drawLeaf(ctx, x, y, side, size, palette, growth) {
     const roundness = this.style.leafRoundness;
     const leafW = size * (0.9 + roundness * 0.45) * growth;
     const leafH = size * (0.55 + roundness * 0.52) * growth;
-    p.push();
-    p.translate(x, y);
-    p.rotate(side * (0.48 - roundness * 0.14));
-    p.noStroke();
-    p.fill(palette.leaf);
-    p.ellipse(side * leafW * 0.23, 0, leafW, leafH);
-    p.fill(palette.leafDark);
-    p.ellipse(side * leafW * 0.12, 0, leafW * 0.52, leafH * 0.28);
-    p.pop();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(side * (0.48 - roundness * 0.14));
+    ctx.fillStyle = palette.leaf;
+    ctx.beginPath();
+    ctx.ellipse(side * leafW * 0.23, 0, leafW / 2, leafH / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = palette.leafDark;
+    ctx.beginPath();
+    ctx.ellipse(side * leafW * 0.12, 0, leafW * 0.26, leafH * 0.14, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
-  #drawBloom(p, x, y, totalHeight, growth, palette, wind) {
+  #drawBloom(ctx, x, y, totalHeight, growth, palette, wind) {
     const openness = this.style.bloomOpenness;
     const petalCount = this.style.petalCount;
     const radius = Math.max(12, totalHeight * (0.055 + openness * 0.045)) * growth;
     const tilt = this.style.bloomTilt + wind * 0.015;
 
-    p.push();
-    p.translate(x, y);
-    p.rotate(tilt);
-    p.noStroke();
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(tilt);
 
     for (let i = 0; i < petalCount; i += 1) {
-      const angle = (p.TWO_PI * i) / petalCount;
-      p.push();
-      p.rotate(angle);
-      p.fill(i % 2 === 0 ? palette.petal : palette.petal2);
-      p.ellipse(radius * 0.72, 0, radius * (0.82 + openness * 0.45), radius * (0.42 + openness * 0.32));
-      p.pop();
+      const angle = (Math.PI * 2 * i) / petalCount;
+      ctx.save();
+      ctx.rotate(angle);
+      ctx.fillStyle = i % 2 === 0 ? palette.petal : palette.petal2;
+      ctx.beginPath();
+      ctx.ellipse(
+        radius * 0.72,
+        0,
+        radius * (0.82 + openness * 0.45) / 2,
+        radius * (0.42 + openness * 0.32) / 2,
+        0,
+        0,
+        Math.PI * 2
+      );
+      ctx.fill();
+      ctx.restore();
     }
 
-    p.fill(palette.center);
-    p.circle(0, 0, radius * 0.66);
-    p.pop();
+    ctx.fillStyle = palette.center;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.33, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 }
