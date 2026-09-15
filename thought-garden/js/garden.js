@@ -8,6 +8,10 @@ function seededUnit(seed) {
   return ((x >>> 0) % 10000) / 10000;
 }
 
+function devicePixelRatio() {
+  return Math.min(2, Math.max(1, Number(globalThis.devicePixelRatio) || 1));
+}
+
 export class Garden {
   constructor(container, { onPlantActivate = () => {}, onPlantVisualChange = () => {} } = {}) {
     this.container = container;
@@ -17,6 +21,9 @@ export class Garden {
     this.hoveredPlant = null;
     this.reducedMotion = false;
     this.groundY = 0;
+    this.width = 0;
+    this.height = 0;
+    this.frameId = null;
     this.particles = Array.from({ length: 34 }, (_, i) => ({
       x: seededUnit(i * 1871 + 17),
       y: seededUnit(i * 7193 + 31) * 0.72,
@@ -24,86 +31,113 @@ export class Garden {
       phase: seededUnit(i * 1459 + 71) * Math.PI * 2
     }));
 
-    this.sketch = new window.p5(p => {
-      p.setup = () => {
-        const { width, height } = this.#measure();
-        const canvas = p.createCanvas(width, height);
-        canvas.parent(this.container);
-        canvas.elt.setAttribute('aria-hidden', 'true');
-        this.#updateGround(p);
-      };
+    this.canvas = document.createElement('canvas');
+    this.canvas.setAttribute('aria-hidden', 'true');
+    this.canvas.className = 'garden-renderer';
+    this.ctx = this.canvas.getContext('2d');
+    if (!this.ctx) throw new Error('Canvas 2D is not supported in this browser.');
+    this.container.prepend(this.canvas);
 
-      p.draw = () => {
-        this.#drawScene(p);
-      };
-
-      p.mouseMoved = () => {
-        this.hoveredPlant = this.findPlantAt(p.mouseX, p.mouseY);
+    this.canvas.addEventListener('mousemove', event => {
+      const { x, y } = this.#eventPoint(event);
+      const next = this.findPlantAt(x, y);
+      if (next !== this.hoveredPlant) {
+        this.hoveredPlant = next;
         this.onPlantVisualChange();
-      };
-
-      p.mousePressed = () => {
-        const plant = this.findPlantAt(p.mouseX, p.mouseY);
-        if (plant) this.onPlantActivate(plant.entry);
-      };
-
-      p.windowResized = () => this.resize();
+      }
     });
+    this.canvas.addEventListener('mouseleave', () => {
+      if (this.hoveredPlant) {
+        this.hoveredPlant = null;
+        this.onPlantVisualChange();
+      }
+    });
+    this.canvas.addEventListener('click', event => {
+      const { x, y } = this.#eventPoint(event);
+      const plant = this.findPlantAt(x, y);
+      if (plant) this.onPlantActivate(plant.entry);
+    });
+
+    this.resize();
+    this.#loop = this.#loop.bind(this);
+    this.frameId = requestAnimationFrame(this.#loop);
+  }
+
+  #eventPoint(event) {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top
+    };
   }
 
   #measure() {
     const rect = this.container.getBoundingClientRect();
     return {
-      width: Math.max(320, Math.floor(rect.width || window.innerWidth)),
-      height: Math.max(420, Math.floor(rect.height || window.innerHeight))
+      width: Math.max(320, Math.floor(rect.width || globalThis.innerWidth || 320)),
+      height: Math.max(420, Math.floor(rect.height || globalThis.innerHeight || 420))
     };
   }
 
-  #updateGround(p) {
-    this.groundY = p.height * 0.78;
+  #loop(now) {
+    this.#drawScene(now);
+    this.frameId = requestAnimationFrame(this.#loop);
   }
 
-  #drawScene(p) {
-    const top = p.color('#111827');
-    const bottom = p.color('#26354a');
-    for (let y = 0; y < p.height; y += 4) {
-      const c = p.lerpColor(top, bottom, y / p.height);
-      p.noStroke();
-      p.fill(c);
-      p.rect(0, y, p.width, 5);
-    }
+  #drawScene(now) {
+    const ctx = this.ctx;
+    const gradient = ctx.createLinearGradient(0, 0, 0, this.height);
+    gradient.addColorStop(0, '#111827');
+    gradient.addColorStop(1, '#26354a');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, this.width, this.height);
 
-    this.#drawParticles(p);
-    this.#drawTerrain(p);
+    this.#drawParticles(now);
+    this.#drawTerrain();
 
-    const now = p.millis();
     for (const plant of this.plants) {
-      plant.draw(p, this.groundY, now, this.reducedMotion);
+      plant.draw(ctx, {
+        width: this.width,
+        height: this.height,
+        groundY: this.groundY,
+        now,
+        reducedMotion: this.reducedMotion
+      });
     }
   }
 
-  #drawParticles(p) {
-    p.noStroke();
-    const now = p.millis();
+  #drawParticles(now) {
+    const ctx = this.ctx;
     for (const particle of this.particles) {
       const drift = this.reducedMotion ? 0 : Math.sin(now * 0.0003 + particle.phase) * 8;
-      const x = particle.x * p.width + drift;
-      const y = particle.y * p.height;
-      p.fill(238, 225, 188, this.reducedMotion ? 34 : 55);
-      p.circle(x, y, particle.size);
+      const x = particle.x * this.width + drift;
+      const y = particle.y * this.height;
+      ctx.fillStyle = this.reducedMotion ? 'rgba(238,225,188,0.13)' : 'rgba(238,225,188,0.22)';
+      ctx.beginPath();
+      ctx.arc(x, y, particle.size / 2, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
-  #drawTerrain(p) {
-    p.noStroke();
-    p.fill('#17261f');
-    p.beginShape();
-    p.vertex(0, p.height);
-    p.vertex(0, this.groundY + 12);
-    p.bezierVertex(p.width * 0.18, this.groundY - 8, p.width * 0.34, this.groundY + 14, p.width * 0.52, this.groundY + 2);
-    p.bezierVertex(p.width * 0.7, this.groundY - 10, p.width * 0.86, this.groundY + 12, p.width, this.groundY);
-    p.vertex(p.width, p.height);
-    p.endShape(p.CLOSE);
+  #drawTerrain() {
+    const ctx = this.ctx;
+    ctx.fillStyle = '#17261f';
+    ctx.beginPath();
+    ctx.moveTo(0, this.height);
+    ctx.lineTo(0, this.groundY + 12);
+    ctx.bezierCurveTo(
+      this.width * 0.18, this.groundY - 8,
+      this.width * 0.34, this.groundY + 14,
+      this.width * 0.52, this.groundY + 2
+    );
+    ctx.bezierCurveTo(
+      this.width * 0.7, this.groundY - 10,
+      this.width * 0.86, this.groundY + 12,
+      this.width, this.groundY
+    );
+    ctx.lineTo(this.width, this.height);
+    ctx.closePath();
+    ctx.fill();
   }
 
   setEntries(entries) {
@@ -125,19 +159,25 @@ export class Garden {
   }
 
   findPlantAt(x, y) {
-    if (!this.sketch) return null;
     for (let i = this.plants.length - 1; i >= 0; i -= 1) {
       const plant = this.plants[i];
-      if (plant.contains(x, y, this.sketch.width, this.sketch.height, this.groundY)) return plant;
+      if (plant.contains(x, y, this.width, this.height, this.groundY)) return plant;
     }
     return null;
   }
 
   resize() {
-    if (!this.sketch) return;
+    if (!this.canvas || !this.ctx) return;
     const { width, height } = this.#measure();
-    this.sketch.resizeCanvas(width, height);
-    this.#updateGround(this.sketch);
+    const ratio = devicePixelRatio();
+    this.width = width;
+    this.height = height;
+    this.canvas.width = Math.round(width * ratio);
+    this.canvas.height = Math.round(height * ratio);
+    this.canvas.style.width = `${width}px`;
+    this.canvas.style.height = `${height}px`;
+    this.ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    this.groundY = height * 0.78;
     this.onPlantVisualChange();
   }
 
@@ -150,7 +190,6 @@ export class Garden {
   }
 
   getPlantScreenBounds(plant) {
-    if (!this.sketch) return null;
-    return plant.getScreenBounds(this.sketch.width, this.sketch.height, this.groundY);
+    return plant.getScreenBounds(this.width, this.height, this.groundY);
   }
 }
