@@ -30,6 +30,10 @@ function mulberry32(seed) {
   };
 }
 
+export function plantFormFromSeed(seed) {
+  return ['flower', 'mushroom', 'sprout'][(Number(seed) >>> 0) % 3];
+}
+
 export function seedFromString(value) {
   const input = String(value ?? '');
   let hash = 2166136261;
@@ -108,6 +112,7 @@ export class Plant {
   constructor(entry, { mature = true } = {}) {
     this.entry = entry;
     this.style = entry.style;
+    this.form = plantFormFromSeed(entry.seed);
     this.progress = mature ? 1 : 0;
     this.growthStartedAt = mature ? null : undefined;
     this.branches = buildGeometry(entry.seed, this.style);
@@ -147,6 +152,17 @@ export class Plant {
     const palette = PALETTES[this.style.paletteIndex % PALETTES.length];
     const x = this.entry.x * width;
     const totalHeight = this.style.height * height;
+
+    if (this.form === 'mushroom') {
+      this.#drawMushroom(ctx, { x, groundY, totalHeight, width, now, reducedMotion, palette });
+      return;
+    }
+
+    if (this.form === 'sprout') {
+      this.#drawSprout(ctx, { x, groundY, totalHeight, width, now, reducedMotion, palette });
+      return;
+    }
+
     const stemGrowth = smoothstep(this.progress / 0.58);
     const branchGrowth = smoothstep((this.progress - 0.28) / 0.48);
     const bloomGrowth = smoothstep((this.progress - 0.7) / 0.3);
@@ -203,6 +219,88 @@ export class Plant {
       ctx.beginPath();
       ctx.ellipse(x, groundY - 3, seedGlow / 2, seedGlow * 0.32, 0, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  #drawMushroom(ctx, { x, groundY, totalHeight, width, now, reducedMotion, palette }) {
+    const growth = smoothstep(this.progress / 0.72);
+    const capGrowth = smoothstep((this.progress - 0.38) / 0.62);
+    const mushroomHeight = totalHeight * 0.46 * growth;
+    const wind = reducedMotion ? 0 : Math.sin(now * 0.00072 + this.entry.seed * 0.001) * this.style.sway;
+    const lean = wind * Math.min(7, totalHeight * 0.025);
+    const stemTopX = x + lean;
+    const stemTopY = groundY - mushroomHeight * 0.68;
+    const stemWidth = Math.max(8, width * (0.008 + this.style.width * 0.018)) * growth;
+    const capWidth = Math.max(30, totalHeight * (0.18 + this.style.bloomOpenness * 0.09)) * capGrowth;
+    const capHeight = capWidth * (0.34 + this.style.leafRoundness * 0.08);
+
+    ctx.save();
+
+    if (growth > 0.05) {
+      ctx.fillStyle = palette.petal2;
+      ctx.beginPath();
+      ctx.moveTo(x - stemWidth * 0.55, groundY);
+      ctx.quadraticCurveTo(x - stemWidth * 0.2, groundY - mushroomHeight * 0.35, stemTopX - stemWidth * 0.35, stemTopY);
+      ctx.lineTo(stemTopX + stemWidth * 0.35, stemTopY);
+      ctx.quadraticCurveTo(x + stemWidth * 0.22, groundY - mushroomHeight * 0.34, x + stemWidth * 0.55, groundY);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    if (capGrowth > 0.01) {
+      ctx.fillStyle = palette.petal;
+      ctx.beginPath();
+      ctx.moveTo(stemTopX - capWidth / 2, stemTopY + capHeight * 0.28);
+      ctx.quadraticCurveTo(stemTopX, stemTopY - capHeight, stemTopX + capWidth / 2, stemTopY + capHeight * 0.28);
+      ctx.quadraticCurveTo(stemTopX, stemTopY + capHeight * 0.55, stemTopX - capWidth / 2, stemTopY + capHeight * 0.28);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = palette.center;
+      const spotRadius = Math.max(1.8, capWidth * 0.045);
+      for (const [dx, dy] of [[-0.22, -0.16], [0.08, -0.28], [0.25, -0.06]]) {
+        ctx.beginPath();
+        ctx.arc(stemTopX + capWidth * dx, stemTopY + capHeight * dy, spotRadius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }
+
+  #drawSprout(ctx, { x, groundY, totalHeight, width, now, reducedMotion, palette }) {
+    const growth = smoothstep(this.progress / 0.8);
+    const sproutHeight = totalHeight * 0.62 * growth;
+    const wind = reducedMotion ? 0 : Math.sin(now * 0.0009 + this.entry.seed * 0.001) * this.style.sway;
+    const tipX = x + wind * Math.min(9, totalHeight * 0.035) * growth;
+    const tipY = groundY - sproutHeight;
+
+    ctx.save();
+    ctx.strokeStyle = palette.stem;
+    ctx.lineWidth = Math.max(2.3, width * 0.0022);
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(x, groundY + 2);
+    ctx.bezierCurveTo(
+      x - wind,
+      groundY - sproutHeight * 0.35,
+      tipX - wind,
+      groundY - sproutHeight * 0.72,
+      tipX,
+      tipY
+    );
+    ctx.stroke();
+
+    const leafGrowth = smoothstep((this.progress - 0.24) / 0.6);
+    if (leafGrowth > 0) {
+      const leafSize = Math.max(20, totalHeight * 0.13);
+      this.#drawLeaf(ctx, x - leafSize * 0.18, groundY - sproutHeight * 0.43, -1, leafSize, palette, leafGrowth);
+      this.#drawLeaf(ctx, x + leafSize * 0.14, groundY - sproutHeight * 0.68, 1, leafSize * 0.92, palette, leafGrowth);
+      if (this.style.branchCount >= 3) {
+        this.#drawLeaf(ctx, tipX, tipY + leafSize * 0.14, this.entry.seed % 2 === 0 ? -1 : 1, leafSize * 0.72, palette, leafGrowth);
+      }
     }
 
     ctx.restore();
