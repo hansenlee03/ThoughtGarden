@@ -34,3 +34,36 @@ test('hashes the same string to the same unsigned seed', () => {
   assert.ok(seedFromString('same thought') >= 0);
   assert.ok(seedFromString('same thought') <= 0xffffffff);
 });
+
+test('draws a mature plant with the native Canvas 2D API', async () => {
+  const { Plant } = await import('../js/plant.js');
+  const style = derivePlantStyle(features, 1234);
+  const entry = { id: 'plant-1', text: 'A thought', x: 0.5, seed: 1234, style };
+  const calls = [];
+  const ctx = new Proxy({
+    canvas: { width: 800, height: 600 },
+    createLinearGradient() { return { addColorStop() {} }; },
+    measureText() { return { width: 0 }; }
+  }, {
+    get(target, prop) {
+      if (prop in target) return target[prop];
+      if (typeof prop === 'symbol') return target[prop];
+      return (...args) => calls.push([prop, ...args]);
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      return true;
+    }
+  });
+
+  const plant = new Plant(entry, { mature: true });
+  assert.doesNotThrow(() => plant.draw(ctx, {
+    width: 800,
+    height: 600,
+    groundY: 468,
+    now: 1000,
+    reducedMotion: true
+  }));
+  assert.ok(calls.some(([name]) => name === 'bezierCurveTo'));
+  assert.ok(calls.some(([name]) => name === 'ellipse'));
+});
